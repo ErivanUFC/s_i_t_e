@@ -1,0 +1,215 @@
+<!--<!DOCTYPE html>
+<html lang="">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>p5.js example</title>
+  <style>
+    body {
+      padding: 0;
+      margin: 0;
+    }
+  </style>
+  <script src="../p5.js"></script>
+  <-- <script src="../addons/p5.sound.js"></script> ->
+  <script src="sketch.js"></script>
+</head>
+
+<body>
+  <main>
+  </main>
+</body>
+
+</html> -->
+
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs/dist/tf.min.js"> </script>
+</head>
+
+<body>
+  <div class="container">
+    <div class="letter"></div>
+    <video class="input_video"></video>
+    <canvas class="output_canvas" width="640px" height="480px"></canvas>
+  </div>
+</body>
+
+</html>
+
+<script type="module">
+  const model = await tf.loadLayersModel('../tfjs_target_dir/model.json');
+  const videoElement = document.getElementsByClassName('input_video')[0];
+  const canvasElement = document.getElementsByClassName('output_canvas')[0];
+  const letter = document.getElementsByClassName('letter')[0];
+  const canvasCtx = canvasElement.getContext('2d');
+  
+  var register = undefined;
+  var counter = 0;
+  var prediction = undefined;
+  
+  // https://gist.github.com/capfsb/3fd1b700b4732debb29aefd576cf54ef
+  ///////////////////////////////////////
+  var prevTime = Date.now(), frames = 0;
+  ///////////////////////////////////////
+
+  const ls = ["A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V","W","X","Y","Z"]
+
+  function onResults(results) {
+    canvasCtx.save();
+    canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+    canvasCtx.drawImage(
+      results.image, 0, 0, canvasElement.width, canvasElement.height);
+ 
+    let x = [];
+    let y = [];
+    let z = [];
+
+    if (results.multiHandLandmarks) {
+      for (const landmarks of results.multiHandLandmarks) {
+        drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS,
+          { color: '#00FF00', lineWidth: 5 });
+        drawLandmarks(canvasCtx, landmarks, { color: '#FF0000', lineWidth: 2 });
+      }
+
+      var points = [];
+      for (const landmarks of results.multiHandLandmarks) {
+        for (const landmark of landmarks) {
+          x.push(landmark.x);
+          y.push(landmark.y);
+          z.push(landmark.z);
+        }
+      }
+
+      x = tf.tensor1d(x);
+      y = tf.tensor1d(y);
+      z = tf.tensor1d(z);
+
+      // console.log(x.shape)
+      let aux =tf.zeros([21]).add(0.001);
+
+      if (x.shape[0] == 0)
+        x = aux
+      if (y.shape[0] == 0)
+        y = aux
+      if (z.shape[0] == 0)
+        z = aux
+
+      let arg1, arg2;
+
+      // AINDA TÁ DIFERENTE, NO TREINAMENTO TÁ 0.001 E NÃO 0
+
+      arg1 = tf.sub(x, tf.min(x));
+      arg2 = tf.sub(tf.max(x), tf.min(x));
+      let x_normalized = arg1.divNoNan(arg2);
+      
+      arg1 = tf.sub(y, tf.min(y));
+      arg2 = tf.sub(tf.max(y), tf.min(y));
+      let y_normalized = arg1.divNoNan(arg2);
+
+      arg1 = tf.sub(z, tf.min(z));
+      arg2 = tf.sub(tf.max(z), tf.min(z));
+      let z_normalized = arg1.divNoNan(arg2);
+
+      let mediapipe_handmarks_normalized = (x_normalized.concat(y_normalized)).concat(z_normalized)
+
+      // counter += 1;
+      // if (counter % 20 == 0) {
+      // register.push(points);
+      // if ( register != undefined ) 
+      ///   console.log(register.shape)
+      
+      // register.push(mediapipe_handmarks_normalized);
+      if ( register == undefined ) {
+        register = mediapipe_handmarks_normalized.reshape([1, 63]);
+      }
+      else {
+        register = tf.concat([register, mediapipe_handmarks_normalized.reshape([1, 63])]);
+      }
+
+      // console.log(register)
+
+      // if (register.length == 29) {
+      if (register.shape[0] > 29) {
+        // register.splice(0, 1);
+        register = tf.slice(register, 1, 29);
+
+        // const x = tf.tensor3d([register]);
+        // console.log(register);
+
+        if (true) { //(prediction == undefined) {
+          // prediction = 1;
+          // Tem que aplicar a normalização
+          
+          // console.log(register.shape)
+
+          let x = register.reshape([1, 29, 63]);
+          prediction = model.predict(x);
+          // console.log(model.predict(x).dataSync())
+          // model.predict(x).print();
+
+          // const x = tf.tensor1d([1, 2, 3]);
+
+          // x.argMax().print();  // or tf.argMax(x)
+          const y = tf.tensor1d(prediction.dataSync());
+
+          // console.log( y.dataSync()[y.argMax().dataSync()] > 0.9 )
+          if (y.dataSync()[y.argMax().dataSync()] > 0.9) {
+            console.log( ls[ y.argMax().dataSync() ], y.dataSync()[y.argMax().dataSync()] )
+
+            letter.innerHTML = ls[ y.argMax().dataSync() ] + ": " + y.dataSync()[y.argMax().dataSync()]
+          }
+        }
+      }
+      // }
+
+      // console.log(register);
+
+      ///////////////////////////////////////
+      const time = Date.now();
+      frames++;
+      if (time > prevTime + 1000) {
+        let fps = Math.round( ( frames * 1000 ) / ( time - prevTime ) );
+        prevTime = time;
+        frames = 0;
+
+        // console.info('FPS: ', fps);
+      }
+      ///////////////////////////////////////
+    }
+    canvasCtx.restore();
+  }
+
+  const hands = new Hands({
+    locateFile: (file) => {
+      return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+    }
+  });
+
+  hands.setOptions({
+    maxNumHands: 1,
+    modelComplexity: 1,
+    minDetectionConfidence: 0.5,
+    minTrackingConfidence: 0.5
+  });
+  hands.onResults(onResults);
+
+  const camera = new Camera(videoElement, {
+    onFrame: async () => {
+      await hands.send({ image: videoElement });
+    },
+    width: 1280,
+    height: 720
+  });
+  camera.start();
+
+  console.log(camera)
+</script>
